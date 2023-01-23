@@ -4,6 +4,7 @@
 
 #include <vector>
 #include <string>
+#include <Eigen/Core>
 
 // Base model class that all the other models are derived from. All models
 // absolutely need to have log_prob, and get_parameter_values.
@@ -18,10 +19,13 @@ public:
   ModelBase (){};
   virtual ~ModelBase (){};
 
-  virtual double log_prob(std::vector<double> pars) = 0;
+  virtual double log_prob(const Eigen::VectorXd  &pars) = 0;
+
+  virtual void set_flat_prior(int idx) {}
 
   virtual void set_parameter_values(std::vector<double> pars) {}
   virtual void set_parameter_names(std::vector<std::string> names) {}
+
 
   virtual std::vector<double> get_parameter_values() = 0;
   virtual std::vector<std::string> get_parameter_names() = 0;

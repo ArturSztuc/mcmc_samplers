@@ -8,6 +8,8 @@
 
 #include "model/model.hpp"
 
+#include "omp.h"
+
 #ifndef MODEL_COVARIANCE_H
 #define MODEL_COVARIANCE_H
 
@@ -34,10 +36,13 @@ class ModelCovariance : public ModelBase
 // Class members
 private:
   // Nominal parameter values
-  std::vector<double> nominal;
+  Eigen::VectorXd nominal;
 
   // Parameter values
-  std::vector<double> values;
+  Eigen::VectorXd values;
+
+  Eigen::VectorXd fNotFlatPriors;
+
 
   // Parameter names
   std::vector<std::string> names;
@@ -45,6 +50,8 @@ private:
   // Covariance matrix holder
   Eigen::MatrixXd covariance;
   Eigen::MatrixXd covarianceInv;
+
+  std::vector< std::vector<double> > mat;
 
   // Number of parameters
   int nPars;
@@ -58,7 +65,12 @@ public:
   ModelCovariance(TMatrixDSym *_covariance);
 
   // Returns the log-probability given the input parameter values
-  double log_prob(std::vector<double> pars);
+  double log_prob(const Eigen::VectorXd &pars);
+
+  //double log_prob(std::vector<double> pars, double temp);
+
+  void set_flat_prior(int idx);
+
 
   // Returns gradient for parameter idx
   double grad(int idx, double par);
@@ -74,7 +86,14 @@ public:
   void set_parameter_names(std::vector<std::string> names);
 
   // Get the parameter values
-  std::vector<double> get_parameter_values(){return values;};
+  std::vector<double> get_parameter_values(){
+    std::vector<double> ret;
+    for (int i = 0; i < nPars; ++i) {
+      ret.push_back(values(i));
+    }
+    return ret;
+  };
+
   // Get the parameter names
   std::vector<std::string> get_parameter_names(){return names;};
 
@@ -83,5 +102,4 @@ private:
   void initialize_model();
 };
 
-//}
 #endif /* MODEL_COVARIANCE_H */

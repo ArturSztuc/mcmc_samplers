@@ -1,4 +1,5 @@
 #include "model_covariance.hpp"
+#include <limits>
 
 // Initialise the covariance matrix model using the Eigen's matrix object
 ModelCovariance::ModelCovariance(Eigen::MatrixXd _covariance)
@@ -26,6 +27,9 @@ ModelCovariance::ModelCovariance(TMatrixDSym* _covariance)
 // Initialise the covariance model.
 void ModelCovariance::initialize_model()
 {
+  omp_set_num_threads(16);
+  Eigen::setNbThreads(16);
+
   // Get the inverse matrix now, so we don't have to make it every logl
   // evaluation
   covarianceInv = covariance.inverse();
@@ -36,28 +40,36 @@ void ModelCovariance::initialize_model()
   // Save the number of parameters
   nPars = covariance.rows();
 
+  fNotFlatPriors = Eigen::VectorXd::Ones(nPars);
+
   // Initialise the default parameter names, nominals, and current values. This
   // can all be changed with setters.
+  nominal = Eigen::VectorXd::Zero(nPars);
+  values  = Eigen::VectorXd::Zero(nPars);
+
   for(int i = 0; i < nPars; ++i)
-  {
     names.push_back(("covarianceModel_" + std::to_string(i)).c_str());
-    nominal.push_back(0.0);
-    values.push_back(0.0);
-  }
+}
+
+void ModelCovariance::set_flat_prior(int idx)
+{ 
+  fNotFlatPriors(idx) = 0; 
 }
 
 // Set custom parameter values
 void ModelCovariance::set_parameter_values(std::vector<double> _values)
 {
   assert(static_cast<int>(_values.size()) == nPars);
-  values = _values;
+  for (int i = 0; i < nPars; ++i)
+    values(i) = _values[i];
 }
 
 // Set custom nominal values
 void ModelCovariance::set_nominal_values(std::vector<double> _nominal)
 {
   assert(static_cast<int>(_nominal.size()) == nPars);
-  nominal = _nominal;
+  for (int i = 0; i < nPars; ++i)
+    nominal(i) = _nominal[i];
 }
 
 // Set custom parameter names
@@ -69,15 +81,18 @@ void ModelCovariance::set_parameter_names(std::vector<std::string> _names)
 
 // Get the log probability. This is just a simple multivariate gaussian, so not
 // much to do here.
-double ModelCovariance::log_prob(std::vector<double> pars)
+double ModelCovariance::log_prob(const Eigen::VectorXd &pars)
 {
+  double log_prob = 0;
+
   // We are assuming the supplied parameter order is the same as the internal.
   assert(static_cast<int>(pars.size()) == nPars);
-  double log_prob = 0;
-  for(int i = 0; i < nPars; ++i){
-    for(int j = 0; j < nPars; ++j){
-      log_prob += 0.5*(pars[i] - nominal[i])*(pars[j] - nominal[j])*covarianceInv(i,j);
-    }
-  }
+
+  Eigen::VectorXd diff = pars - nominal;
+
+  diff = diff.array() * fNotFlatPriors.array();
+
+  log_prob += diff.matrix().dot(covarianceInv*diff.matrix());
+
   return log_prob;
 }
