@@ -16,7 +16,7 @@ endif
 #	make -j23 -C Prob3++ shared
 	make -j23 -C model
 #	make -j23 -C utils
-#	make -j23 -C diagnostics
+	make -j23 -C diagnostics
 	make -j23 -C src
 
 links:
@@ -34,5 +34,6 @@ vclean:
 	#make clean -C Prob3++
 	make vclean -C model 
 	#make vclean -C utils
-	#make vclean -C diagnostics
+	make vclean -C diagnostics
+	make vclean -C output
 	make vclean -C src
