@@ -29,8 +29,8 @@ protected:
     // Current MCMC step
     int fStep;
 
-    // Random number generator. Change to boost or standard C++?
-    TRandom3 *random;
+    // Random number generator. 
+    std::default_random_engine *generator;
 
     // Output file
     TFile *fOutFile;

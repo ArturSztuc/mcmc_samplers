@@ -1,13 +1,13 @@
 #include "mcmc_methastings.hpp"
 
-//namespace mcmc
-//{
-
 MetropolisHastings::MetropolisHastings(ModelBase *_fModel, Config _fConfig)
   : MCMCBase(), fModel(_fModel), fConfig(_fConfig)
 {
   // Initialize the sampler
   initialize_sampler();
+  Eigen::initParallel();
+  omp_set_num_threads(16);
+  Eigen::setNbThreads(16);
 };
 
 // Make sure the config will actually work!
@@ -40,23 +40,23 @@ void MetropolisHastings::initialize_sampler()
   // Make sure whatever is in the config makes sense
   validate_config();
 
-  fConfig.seed = 999;
-  // Initialize the random number generator
-  random = new TRandom3(fConfig.seed);
+  generator = new std::default_random_engine(fConfig.seed);
 
   // Initialize the parameters. Model should return the parameter values that
   // we want to start MCMC from -- this could be the nominal, or random around
   // the nominal.
-  fCurrent.varValues= fModel->get_parameter_values();
-  fCurrent.varNames = fModel->get_parameter_names();
-  fCurrent.logProb = fModel->log_prob(fCurrent.varValues);
+  std::vector<double> tmpVec = fModel->get_parameter_values();
+  fNPars = tmpVec.size();
+  fCurrent.vals = Eigen::VectorXd::Ones(tmpVec.size());
+  for(size_t i = 0; i < tmpVec.size(); ++i)
+    fCurrent.vals(i) = tmpVec[i];
+
+  fCurrent.varNames   = fModel->get_parameter_names();
+  fCurrent.logProb    = fModel->log_prob(fCurrent.vals);
   fProposed = fCurrent;
 
-  // Number of fitting parameters;
-  fNPars = fCurrent.varValues.size();
-
   // Get the step-sizes. 
-  fStepSizes = fConfig.fStepSize;
+  fStepSizes = Eigen::Map<Eigen::VectorXd>(fConfig.fStepSize.data(), fConfig.fStepSize.size());
 
   nAccepted = 0;
 
@@ -76,7 +76,7 @@ void MetropolisHastings::initialize_sampler()
 
   // Create branch per variable
   for(int i = 0; i < fNPars; ++i)
-    fOutTree->Branch(fCurrent.varNames[i].c_str(), &fCurrent.varValues[i]);
+    fOutTree->Branch(fCurrent.varNames[i].c_str(), &fCurrent.vals(i));
 
   fOutTree->Branch("log_prob", &fCurrent.logProb);
   fOutTree->Branch("step", &fStep);
@@ -84,10 +84,13 @@ void MetropolisHastings::initialize_sampler()
 }
 
 // Runs the MCMC sampler!
-//template <class Model>
 void MetropolisHastings::run_mcmc()
 {
+
+  progressbar bar(fConfig.fNSteps);
+  bar.set_opening_bracket_char("Running MCMC: [");
   for (fStep = 0; fStep < fConfig.fNSteps; ++fStep) {
+    bar.update();
 
     // Propose a new MCMC step
     propose_step();
@@ -98,6 +101,7 @@ void MetropolisHastings::run_mcmc()
     // Fill the ttree with current steps
     fOutTree->Fill();
   }
+  std::cout << std::endl;
 
   std::cout << "Accepted: " << nAccepted<<"/"<<fConfig.fNSteps << " :: " << (float(nAccepted)/float(fConfig.fNSteps))*100.0 << "%" << std::endl;
 
@@ -107,40 +111,30 @@ void MetropolisHastings::run_mcmc()
 // New MCMC step. Update the step-sizes before updating the parameter values
 // TODO: I keep multiplying the exact same fConfig.fStepSizes and
 //       covariance(i,i) for the diagonal option, should change that.
-//template <class Model>
 void MetropolisHastings::propose_step()
 {
   // Randomize the step-sizes
-  for(int i = 0; i < fNPars; ++i)
-    fStepSizes[i] = random->Gaus(0,1);
+  for(int i = 0; i < fNPars; ++i){
+    std::normal_distribution<double> distribution(0.0, fConfig.fStepSize[i]);
+    fStepSizes(i) = distribution(*generator);
+  }
 
   // Correlate random values if we use dense matrix. The way we mapped the
   // vector into Eigen means we are actually changing the fStepSizes.
   // Otherwise, if we use the diagonal matrix, multiply random values by the
   // diagonal
-  if(fConfig.matrixDense){
-    //Eigen::Map<Eigen::VectorXd> tmpeigen = fStepSizes.data();
-    Eigen::VectorXd tmpeigen = Eigen::Map<Eigen::VectorXd>(fStepSizes.data(), fStepSizes.size());
-    tmpeigen = choleskyLLT*tmpeigen;
-
-    for(int i = 0; i< fNPars; ++i)
-      fStepSizes[i] = tmpeigen(i);
-  }
+  if(fConfig.matrixDense)
+    fStepSizes = choleskyLLT*fStepSizes;
   else if(fConfig.matrixDiagonal){
     for(int i = 0; i < fNPars; ++i)
-      fStepSizes[i] *= fConfig.covariance(i,i);
+      fStepSizes(i) *= fConfig.covariance(i,i);
   }
 
-  // Scale the step-sizes by user-defined values
-  for (int i = 0; i < fNPars; ++i)
-    fStepSizes[i] *= fConfig.fStepSize[i];
-
   // Finally, update the parameter values
-  for (int i = 0; i < fNPars; ++i)
-    fProposed.varValues[i] = fCurrent.varValues[i] + fStepSizes[i];
+  fProposed.vals = fCurrent.vals + fStepSizes;
 
-  // Update the log-probability 
-  fProposed.logProb = fModel->log_prob(fProposed.varValues);
+  //// Update the log-probability 
+  fProposed.logProb = fModel->log_prob(fProposed.vals);
 }
 
 // Metropolis-Hastings correction
@@ -151,7 +145,10 @@ void MetropolisHastings::metropolis_correction()
   double acceptRatio = std::exp(-fProposed.logProb + fCurrent.logProb);
 
   // Random Metropolis-Hastings throw
-  double metHastRnd = random->Rndm();
+  std::uniform_real_distribution<double> distribution(0.0, 1.0);
+  double metHastRnd = distribution(*generator);
+
+  //double metHastRnd = random->Rndm();
 
   // If accepted, overwrite the current with proposed values
   if(metHastRnd <= acceptRatio){
@@ -159,6 +156,3 @@ void MetropolisHastings::metropolis_correction()
     nAccepted++;
   }
 }
-
-
-//} /* mcmc */ 

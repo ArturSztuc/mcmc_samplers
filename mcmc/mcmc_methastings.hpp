@@ -1,22 +1,28 @@
+#pragma once
+
+// Eigen libraries
 #include <Eigen/Core>
 #include <Eigen/Dense>
 #include <Eigen/Eigen>
 #include <Eigen/Cholesky>
+
+// std
 #include <string>
 #include <iostream>
 #include <vector>
+#include <random>
+#include <omp.h>
+
+// ROOT
 #include "TRandom3.h"
 #include "TFile.h"
 #include "TTree.h"
 
+// Local libs
 #include "mcmc/mcmc.hpp"
 #include "model/model.hpp"
+#include "utils/progressbar.hpp"
 
-#ifndef MCMC_SAMPLER_H
-#define MCMC_SAMPLER_H
-
-//namespace mcmc
-//{
 
 // Config for the MCMC sampler. 
 // TODO:
@@ -49,7 +55,7 @@ struct Config
 struct Sample
 {
   // Parameter values
-  std::vector<double> varValues;
+  Eigen::VectorXd vals;
   // Parameter names
   std::vector<std::string> varNames;
   // Sample's log probability
@@ -92,7 +98,8 @@ class MetropolisHastings : public MCMCBase
     TTree *fOutTree;
 
     // Internal step-sizes to be updated at each MCMC step
-    std::vector<double> fStepSizes;
+    Eigen::VectorXd fStepSizes;
+    //Eigen::VectorXd fUserStepSizes;
 
   // Class public member functions
   public:
@@ -103,6 +110,8 @@ class MetropolisHastings : public MCMCBase
 
     // Run MCMC
     void run_mcmc();
+
+    TTree* get_tree(){ return fOutTree; };
 
   // Class private member functions
   private:
@@ -119,6 +128,3 @@ class MetropolisHastings : public MCMCBase
     void initialize_sampler();
 
 };
-//}
-
-#endif /* MCMC_SAMPLER_H */
